@@ -6,8 +6,6 @@
     <script>
         window.setup = () => {}; // Placeholder to prevent p5.js errors
     </script>
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3202768823592239"
-        crossorigin="anonymous"></script>
     <style>
         body {
             display: flex;
@@ -85,15 +83,14 @@ for (const key in window) {
         let baseSpawnInterval = .5;  // Starting spawn interval
         let gameStartTime = 0;      // Track when game started
 	    let lastEnemySpawn = 0;
-        let shapeSize = 10; // Starting size
 
         // Player Class
         class Player {
             constructor() {
                 this.reset();
                 this.size = 20;
-                this.baseSpeed = 5;
-                this.boostSpeed = 10;
+                this.baseSpeed = 6;
+                this.boostSpeed = 12;
             }
 
             reset() {
@@ -230,7 +227,6 @@ for (const key in window) {
         return dist(this.x, this.y, enemy.x, enemy.y) < (this.size/2 + enemy.size/2);
     }
 }
-     
         // PowerupManager Class
         class PowerupManager {
     constructor() {
@@ -400,28 +396,17 @@ function drawEnemies() {
     enemies.forEach(enemy => enemy.draw());
 }
 function updateEnemies() {
-    const currentTime = floor(millis() / 1000); // Current time in seconds
+    const currentTime = floor(millis() / 1000);  // Keep in seconds
     const elapsedTime = currentTime - gameStartTime;
-
-    // Adjust how quickly the spawn interval decreases
-    const spawnDecreaseRate = 0.01; // Rate of decrease per second (increase for faster rate)
-    const minSpawnInterval = 0.0001;  // Minimum allowed spawn interval
-    const currentSpawnInterval = Math.max(
-        minSpawnInterval, 
-        baseSpawnInterval - elapsedTime * spawnDecreaseRate
-    );
-
-    // Spawn new enemies based on the current interval
+    // Make it decrease much faster - try 0.05 per second instead of 0.01
+    const currentSpawnInterval = Math.max(0.05, baseSpawnInterval - (elapsedTime * 0.05));
+    
     if (currentTime - lastEnemySpawn >= currentSpawnInterval) {
         enemies.push(new Enemy());
         lastEnemySpawn = currentTime;
     }
-
-    // Increase enemy speed slightly over time
-    enemies.forEach(enemy => {
-        enemy.baseSpeed = 2 + elapsedTime * 0.1; // Speed increases over time
-        enemy.move(player);
-    });
+    
+    enemies.forEach(enemy => enemy.move(player));
 }
         function checkCollisions() {
             for (const enemy of enemies) {
@@ -435,7 +420,7 @@ function updateEnemies() {
         }
 
         function displayScore() {
-            fill(255);
+            fill(0);
             textSize(32);
             text("Score: " + score, 10, 30);
         }
@@ -462,10 +447,9 @@ function updateEnemies() {
 function drawBullets() {
     bullets.forEach(bullet => bullet.draw());
 }
-    */
         function drawGameOver() {
-    background(0);
-    fill(255);
+    background(200, 200, 255);
+    fill(0);
     textAlign(CENTER);
     
     if (isEnteringInitials) {
@@ -477,7 +461,7 @@ function drawBullets() {
         // Draw initials with current position highlighted
         for (let i = 0; i < 3; i++) {
             if (i === currentInitialIndex) {
-                fill(255);
+                fill(255, 0, 0);
             } else {
                 fill(0);
             }
@@ -485,7 +469,7 @@ function drawBullets() {
         }
         
         textSize(24);
-        fill(255);
+        fill(0);
         text("Use UP/DOWN to change letter", width/2, height/2 + 60);
         text("Use LEFT/RIGHT to move position", width/2, height/2 + 90);
         text("Press ENTER when done", width/2, height/2 + 120);
@@ -502,14 +486,14 @@ function drawBullets() {
         for (let i = 0; i < MAX_HIGH_SCORES; i++) {
             const hsText = `${i + 1}. ${highScores[i].initials} - ${highScores[i].score}`;
             if (highScores[i].score === score && highScores[i].initials === currentInitials) {
-                fill(0);
+                fill(255, 0, 0);
             } else {
-                fill(255);
+                fill(0);
             }
             text(hsText, width/2, height/2 + 40 + i * 30);
         }
         
-        fill(255);
+        fill(0);
         textSize(24);
         text("Press SPACE to Play Again", width/2, height - 60);
     }
@@ -577,7 +561,7 @@ function insertHighScore(initials, score) {
     try {
         if (!gameInitialized) {
             console.log("Game not yet initialized, waiting...");
-            background(0);
+            background(200, 200, 255);
             return;
         }
         
@@ -586,15 +570,15 @@ function insertHighScore(initials, score) {
             return;
         }
 
-        background(0);
+        background(200, 200, 255);
         player.move();
         updateEnemies();
         incrementScore();
         powerupManager.update();
-        //updateBullets();  // Add here
+        updateBullets();  // Add here
         player.draw();
         drawEnemies();
-        //drawBullets();    // Add here
+        drawBullets();    // Add here
         powerupManager.draw();
         displayScore();
         checkCollisions();
@@ -616,15 +600,5 @@ function insertHighScore(initials, score) {
     }
 }
     </script>
-
-<div id="ad-container">
-    <ins class="adsbygoogle"
-         style="display:block;width:320px;height:50px;margin:auto"
-         data-ad-client="ca-pub-3202768823592239"
-         data-ad-slot="YOUR_AD_SLOT_ID"></ins>
-    <script>
-        (adsbygoogle = window.adsbygoogle || []).push({});
-    </script>
-</div>
 </body>
 </html>

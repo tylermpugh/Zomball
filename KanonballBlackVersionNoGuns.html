@@ -81,7 +81,7 @@ for (const key in window) {
         let currentInitials = "AAA";
         let currentInitialIndex = 0;
         let gameInitialized = false;
-        let bullets = [];
+        //let bullets = [];
         let baseSpawnInterval = .5;  // Starting spawn interval
         let gameStartTime = 0;      // Track when game started
 	    let lastEnemySpawn = 0;
@@ -180,7 +180,7 @@ for (const key in window) {
                 return dist(this.x, this.y, player.x + player.size / 2, player.y + player.size / 2) < (this.size / 2 + player.size / 2);
             }
         }
-        class Bullet {
+       /* class Bullet {
     constructor(x, y) {
         this.x = x;
         this.y = y;
@@ -230,7 +230,7 @@ for (const key in window) {
         return dist(this.x, this.y, enemy.x, enemy.y) < (this.size/2 + enemy.size/2);
     }
 }
-     
+    */ 
         // PowerupManager Class
         class PowerupManager {
     constructor() {
@@ -381,7 +381,7 @@ randomPowerupType() {
         console.log("Starting game reset");
         player = new Player();
         enemies = [];
-        bullets = [];
+        //bullets = [];
         powerupManager = new PowerupManager();
         score = 0;
         gameOver = false;
@@ -439,7 +439,7 @@ function updateEnemies() {
             textSize(32);
             text("Score: " + score, 10, 30);
         }
-        function updateBullets() {
+        /*function updateBullets() {
     for (let i = bullets.length - 1; i >= 0; i--) {
         bullets[i].update();
         
@@ -611,8 +611,8 @@ function insertHighScore(initials, score) {
         } else if (key === ' ') {
             resetGame();
         }
-    } else if (key === ' ') {  // Changed from 'f'/'F' back to space
-        bullets.push(new Bullet(player.x + player.size/2, player.y + player.size/2));
+   // } else if (key === ' ') {  // Changed from 'f'/'F' back to space
+    //    bullets.push(new Bullet(player.x + player.size/2, player.y + player.size/2));
     }
 }
     </script>
