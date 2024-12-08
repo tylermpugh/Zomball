@@ -97,14 +97,16 @@ for (const key in window) {
             }
 
             reset() {
-                this.x = WINDOW_WIDTH / 2;
-                this.y = WINDOW_HEIGHT - 50;
-                this.hasShield = false;
-                this.hasSpeedBoost = false;
-                this.hasMagnet = false;
+                 this.x = WINDOW_WIDTH / 2;
+                 this.y = WINDOW_HEIGHT - 50;
+                 this.hasShield = false;
+                 this.hasSpeedBoost = false;
+                 this.hasMagnet = false;
                 this.hasSlowEnemies = false;
                 this.hasDoublePoints = false;
-            }
+                this.hasGun = false;
+                this.lives = 1;
+}
 
             move() {
                 const currentSpeed = this.hasSpeedBoost ? this.boostSpeed : this.baseSpeed;
@@ -135,8 +137,9 @@ for (const key in window) {
     constructor() {
         this.size = 15;
         this.baseSpeed = 2;
+        this.frozen = false;  // Add this line
         this.respawn();
-    }
+}
 
     respawn() {
         const safeRadius = 100;  // Radius of safe zone around player
@@ -158,6 +161,10 @@ for (const key in window) {
     }
 
             move(player) {
+                // If enemy is frozen, don't move at all
+                 if (this.frozen) {
+                 return;
+    }
                 const speed = player.hasSlowEnemies ? this.baseSpeed * 0.5 : this.baseSpeed;
                 const angle = atan2(player.y - this.y, player.x - this.x);
                 if (player.hasMagnet) {
@@ -172,9 +179,14 @@ for (const key in window) {
             draw() {
                 stroke(0);
                 strokeWeight(2);
-                fill(0, 255, 0);
-                ellipse(this.x, this.y, this.size, this.size);
-            }
+                 // Change color based on frozen state
+                 if (this.frozen) {
+                   fill(135, 206, 235);  // Light blue for frozen enemies
+                 } else {
+                 fill(0, 255, 0);      // Regular green for normal enemies
+                }
+                 ellipse(this.x, this.y, this.size, this.size);
+}
 
             collidesWithPlayer(player) {
                 return dist(this.x, this.y, player.x + player.size / 2, player.y + player.size / 2) < (this.size / 2 + player.size / 2);
@@ -240,7 +252,11 @@ for (const key in window) {
             Shield: 0,
             Magnet: 0,
             SlowEnemies: 0,
-            DoublePoints: 0
+            DoublePoints: 0,
+            FreezeTime: 0,  // New powerup
+            Explosion: 0,   // New powerup
+            LifeGain: 0,    // New powerup
+            Gun: 0          // New powerup
         };
         this.nextPowerupScore = POWERUP_SCORE_THRESHOLD;
     }
@@ -250,9 +266,7 @@ for (const key in window) {
             this.spawn();
             this.nextPowerupScore += POWERUP_SCORE_THRESHOLD;
         }
-
         const currentTime = millis();
-        // Check each powerup timer
         for (const [type, endTime] of Object.entries(this.powerupTimers)) {
             if (endTime > 0 && currentTime > endTime) {
                 this.deactivatePowerup(type);
@@ -260,17 +274,18 @@ for (const key in window) {
         }
     }
 
-// Add this method to the PowerupManager class:
-spawn() {
-    const newX = random(width);
-    const newY = random(height - 100);
-    this.activePowerups.push({ x: newX, y: newY, size: 20 });
-}
+    spawn() {
+        const newX = random(width);
+        const newY = random(height - 100);
+        this.activePowerups.push({ x: newX, y: newY, size: 20 });
+    }
 
-randomPowerupType() {
-    const types = ["Speed", "Shield", "Magnet", "SlowEnemies", "DoublePoints"];
-    return types[floor(random(types.length))];
-}
+    randomPowerupType() {
+        // Updated list includes all powerup types
+        const types = ["Speed", "Shield", "Magnet", "SlowEnemies", "DoublePoints", 
+                      "FreezeTime", "Explosion", "LifeGain", "Gun"];
+        return types[floor(random(types.length))];
+    }
 
     collectPowerup(p) {
         const type = this.randomPowerupType();
@@ -282,6 +297,10 @@ randomPowerupType() {
             case "Magnet": player.hasMagnet = true; break;
             case "SlowEnemies": player.hasSlowEnemies = true; break;
             case "DoublePoints": player.hasDoublePoints = true; break;
+            case "FreezeTime": enemies.forEach(e => e.frozen = true); break;
+            case "Explosion": enemies = []; break;
+            case "LifeGain": player.lives = (player.lives || 1) + 1; break;
+            case "Gun": player.hasGun = true; break;
         }
     }
 
@@ -292,18 +311,14 @@ randomPowerupType() {
             case "Magnet": player.hasMagnet = false; break;
             case "SlowEnemies": player.hasSlowEnemies = false; break;
             case "DoublePoints": player.hasDoublePoints = false; break;
+            case "FreezeTime": enemies.forEach(e => e.frozen = false); break;
+            case "Gun": player.hasGun = false; break;
         }
         this.powerupTimers[type] = 0;
     }
 
-    deactivateAll() {
-        for (const type of Object.keys(this.powerupTimers)) {
-            this.deactivatePowerup(type);
-        }
-    }
-
     draw() {
-        // Draw powerup diamonds (unchanged)
+        // Draw powerup diamonds
         for (let i = this.activePowerups.length - 1; i >= 0; i--) {
             const p = this.activePowerups[i];
             fill(128, 0, 128);
@@ -315,7 +330,8 @@ randomPowerupType() {
             vertex(p.x - p.size / 2, p.y);
             endShape(CLOSE);
 
-            if (dist(p.x, p.y, player.x + player.size / 2, player.y + player.size / 2) < (p.size / 2 + player.size / 2)) {
+            if (dist(p.x, p.y, player.x + player.size / 2, player.y + player.size / 2) < 
+                (p.size / 2 + player.size / 2)) {
                 this.collectPowerup(p);
                 this.activePowerups.splice(i, 1);
             }
@@ -423,22 +439,38 @@ function updateEnemies() {
         enemy.move(player);
     });
 }
-        function checkCollisions() {
-            for (const enemy of enemies) {
-                if (enemy.collidesWithPlayer(player) && !player.hasShield) {
-                    gameOver = true;
-                    if (score > highScores[MAX_HIGH_SCORES - 1].score) {
-                        isEnteringInitials = true;
-                    }
+function checkCollisions() {
+    for (const enemy of enemies) {
+        if (enemy.collidesWithPlayer(player)) {
+            // First check if player has a shield - if so, just remove the enemy
+            if (player.hasShield) {
+                const index = enemies.indexOf(enemy);
+                if (index > -1) {
+                    enemies.splice(index, 1);
+                }
+                continue;  // Skip the rest of this iteration
+            }
+
+            // If no shield, reduce lives by 1
+            player.lives--;
+
+            // Remove the enemy that caused the collision
+            const index = enemies.indexOf(enemy);
+            if (index > -1) {
+                enemies.splice(index, 1);
+            }
+
+            // Only set game over if we're out of lives
+            if (player.lives <= 0) {
+                gameOver = true;
+                if (score > highScores[MAX_HIGH_SCORES - 1].score) {
+                    isEnteringInitials = true;
                 }
             }
         }
+    }
+}
 
-        function displayScore() {
-            fill(255);
-            textSize(32);
-            text("Score: " + score, 10, 30);
-        }
         function updateBullets() {
     for (let i = bullets.length - 1; i >= 0; i--) {
         bullets[i].update();
@@ -459,10 +491,21 @@ function updateEnemies() {
     }
 }
 
+function displayGameInfo() {
+    // Display score
+    fill(255);
+    textSize(32);
+    text("Score: " + score, 10, 30);
+    
+    // Display lives - red heart symbol (♥) for each life
+    textSize(24);
+    fill(255, 0, 0);  // Red color for hearts
+    text("Lives: " + "♥".repeat(player.lives), 10, 60);
+}
+
 function drawBullets() {
     bullets.forEach(bullet => bullet.draw());
 }
-    */
         function drawGameOver() {
     background(0);
     fill(255);
@@ -591,12 +634,12 @@ function insertHighScore(initials, score) {
         updateEnemies();
         incrementScore();
         powerupManager.update();
-        //updateBullets();  // Add here
+        updateBullets();  
         player.draw();
         drawEnemies();
-        //drawBullets();    // Add here
+        drawBullets();    
         powerupManager.draw();
-        displayScore();
+        displayGameInfo();  // Replace displayScore() with this
         checkCollisions();
     } catch (error) {
         console.error("Error in draw loop:", error);
@@ -604,14 +647,14 @@ function insertHighScore(initials, score) {
     }
 }
 
-        window.keyPressed = function() {
+window.keyPressed = function() {
     if (gameOver) {
         if (isEnteringInitials) {
             handleInitialsInput();
         } else if (key === ' ') {
             resetGame();
         }
-    } else if (key === ' ') {  // Changed from 'f'/'F' back to space
+    } else if (key === ' ' && player.hasGun) {  // Add the hasGun check here
         bullets.push(new Bullet(player.x + player.size/2, player.y + player.size/2));
     }
 }
