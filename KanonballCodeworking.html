@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kanonball</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.10.0/firebase-database.js"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+<script>
+// Original game constants
+const WINDOW_WIDTH = 800;
+const WINDOW_HEIGHT = 600;
+const ENEMY_SPAWN_INTERVAL = 1;
+const POWERUP_SCORE_THRESHOLD = 50;
+const POWERUP_DURATION = 5000;
+
+// New high score constants
+const MAX_HIGH_SCORES = 5;
+const INITIAL_HIGH_SCORES = [
+    { initials: "AAA", score: 1000 },
+    { initials: "BBB", score: 800 },
+    { initials: "CCC", score: 600 },
+    { initials: "DDD", score: 400 },
+    { initials: "EEE", score: 200 }
+];
+
+// High score state variables
+let highScores = [];
+let isEnteringInitials = false;
+let currentInitials = "AAA";
+let currentInitialIndex = 0;
+
+// Original Player class
+class Player {
+    constructor() {
+        this.reset();
+        this.size = 20;
+        this.baseSpeed = 5;
+        this.boostSpeed = 8;
+    }
+    
+    reset() {
+        this.x = WINDOW_WIDTH / 2;
+        this.y = WINDOW_HEIGHT - 50;
+        this.hasShield = false;
+        this.hasSpeedBoost = false;
+        this.hasMagnet = false;
+        this.hasSlowEnemies = false;
+        this.hasDoublePoints = false;
+    }
+    
+    move() {
+        const currentSpeed = this.hasSpeedBoost ? this.boostSpeed : this.baseSpeed;
+        
+        if (keyIsDown(LEFT_ARROW)) this.x -= currentSpeed;
+        if (keyIsDown(RIGHT_ARROW)) this.x += currentSpeed;
+        if (keyIsDown(UP_ARROW)) this.y -= currentSpeed;
+        if (keyIsDown(DOWN_ARROW)) this.y += currentSpeed;
+        
+        this.x = (this.x < 0) ? WINDOW_WIDTH : (this.x > WINDOW_WIDTH) ? 0 : this.x;
+        this.y = (this.y < 0) ? WINDOW_HEIGHT : (this.y > WINDOW_HEIGHT) ? 0 : this.y;
+    }
+    
+    draw() {
+        stroke(0);
+        strokeWeight(2);
+        fill(255, 0, 0);
+        rect(this.x, this.y, this.size, this.size);
+        if (this.hasShield) {
+            stroke(0, 255, 255);
+            strokeWeight(3);
+            noFill();
+            rect(this.x-2, this.y-2, this.size+4, this.size+4);
+        }
+    }
+}
+
+// Original Enemy class
+class Enemy {
+    constructor() {
+        this.size = 15;
+        this.baseSpeed = 2;
+        this.respawn();
+    }
+    
+    respawn() {
+        this.x = random(WINDOW_WIDTH);
+        this.y = random(WINDOW_HEIGHT - 100);
+    }
+    
+    move(player) {
+        const speed = player.hasSlowEnemies ? this.baseSpeed * 0.5 : this.baseSpeed;
+        const angle = atan2(player.y - this.y, player.x - this.x);
+        
+        if (player.hasMagnet) {
+            this.x += cos(angle) * speed * 1.5;
+            this.y += sin(angle) * speed * 1.5;
+        } else {
+            this.x += cos(angle) * speed;
+            this.y += sin(angle) * speed;
+        }
+    }
+    
+    draw() {
+        stroke(0);
+        strokeWeight(2);
+        fill(0, 255, 0);
+        ellipse(this.x, this.y, this.size, this.size);
+    }
+    
+    collidesWithPlayer(player) {
+        return dist(this.x, this.y, player.x + player.size/2, player.y + player.size/2) < (this.size/2 + player.size/2);
+    }
+}
+
+// Original PowerupManager class
+class PowerupManager {
+    constructor() {
+        this.activePowerups = [];
+        this.currentType = "";
+        this.endTime = 0;
+        this.nextPowerupScore = POWERUP_SCORE_THRESHOLD;
+    }
+    
+    update() {
+        if (score >= this.nextPowerupScore) {
+            this.spawn();
+            this.nextPowerupScore += POWERUP_SCORE_THRESHOLD;
+        }
+        
+        if (millis() > this.endTime && this.currentType !== "") {
+            this.deactivateAll();
+        }
+    }
+    
+    spawn() {
+        const newX = random(width);
+        const newY = random(height - 100);
+        this.activePowerups.push({x: newX, y: newY, size: 20});
+    }
+    
+    randomPowerupType() {
+        const types = ["Speed", "Shield", "Magnet", "SlowEnemies", "DoublePoints"];
+        return types[floor(random(types.length))];
+    }
+    
+    collectPowerup(p) {
+        this.currentType = this.randomPowerupType();
+        this.endTime = millis() + POWERUP_DURATION;
+        
+        switch(this.currentType) {
+            case "Speed": player.hasSpeedBoost = true; break;
+            case "Shield": player.hasShield = true; break;
+            case "Magnet": player.hasMagnet = true; break;
+            case "SlowEnemies": player.hasSlowEnemies = true; break;
+            case "DoublePoints": player.hasDoublePoints = true; break;
+        }
+    }
+    
+    deactivateAll() {
+        player.hasSpeedBoost = false;
+        player.hasShield = false;
+        player.hasMagnet = false;
+        player.hasSlowEnemies = false;
+        player.hasDoublePoints = false;
+        this.currentType = "";
+    }
+    
+    draw() {
+        for (let i = this.activePowerups.length - 1; i >= 0; i--) {
+            const p = this.activePowerups[i];
+            
+            fill(128, 0, 128);
+            noStroke();
+            beginShape();
+            vertex(p.x, p.y - p.size/2);
+            vertex(p.x + p.size/2, p.y);
+            vertex(p.x, p.y + p.size/2);
+            vertex(p.x - p.size/2, p.y);
+            endShape(CLOSE);
+            
+            if (dist(p.x, p.y, player.x + player.size/2, player.y + player.size/2) < (p.size/2 + player.size/2)) {
+                this.collectPowerup(p);
+                this.activePowerups.splice(i, 1);
+            }
+        }
+        
+        if (this.currentType !== "") {
+            fill(255, 215, 0);
+            textSize(24);
+            text("Powerup: " + this.currentType, width - 250, 30);
+            const remainingTime = floor((this.endTime - millis()) / 1000) + 1;
+            text("Time: " + remainingTime + "s", width - 250, 60);
+        }
+    }
+}
+
+// New high score management functions
+function initializeHighScores() {
+    const savedScores = localStorage.getItem('kanonballHighScores');
+    if (savedScores) {
+        highScores = JSON.parse(savedScores);
+    } else {
+        highScores = INITIAL_HIGH_SCORES;
+        saveHighScores();
+    }
+}
+
+function saveHighScores() {
+    localStorage.setItem('kanonballHighScores', JSON.stringify(highScores));
+}
+
+function checkHighScore(score) {
+    return score > highScores[MAX_HIGH_SCORES - 1].score;
+}
+
+function insertHighScore(initials, score) {
+    let inserted = false;
+    for (let i = 0; i < MAX_HIGH_SCORES; i++) {
+        if (score > highScores[i].score) {
+            highScores.splice(i, 0, { initials, score });
+            inserted = true;
+            break;
+        }
+    }
+    highScores = highScores.slice(0, MAX_HIGH_SCORES);
+    saveHighScores();
+    return inserted;
+}
+
+// Game variables
+let player;
+let enemies;
+let score = 0;
+let gameOver = false;
+let lastEnemySpawn = 0;
+let lastScoreUpdate = 0;
+let powerupManager;
+
+function setup() {
+    createCanvas(WINDOW_WIDTH, WINDOW_HEIGHT);
+    initializeHighScores();
+    resetGame();
+}
+
+function resetGame() {
+    player = new Player();
+    enemies = [];
+    powerupManager = new PowerupManager();
+    score = 0;
+    gameOver = false;
+    lastScoreUpdate = floor(millis() / 1000);
+    enemies.push(new Enemy());
+}
+
+function updateTimer() {
+    const currentTime = floor(millis() / 1000);
+    if (currentTime > lastScoreUpdate) {
+        score += 10;
+        lastScoreUpdate = currentTime;
+    }
+}
+
+function draw() {
+    if (gameOver) {
+        drawGameOver();
+        return;
+    }
+    
+    background(200, 200, 255);
+    
+    player.move();
+    updateEnemies();
+    updateTimer();
+    powerupManager.update();
+    
+    player.draw();
+    drawEnemies();
+    powerupManager.draw();
+    displayScore();
+    
+    checkCollisions();
+}
+
+function drawEnemies() {
+    for (const enemy of enemies) {
+        enemy.draw();
+    }
+}
+
+function updateEnemies() {
+    const currentTime = floor(millis() / 1000);
+    if (currentTime - lastEnemySpawn >= ENEMY_SPAWN_INTERVAL) {
+        enemies.push(new Enemy());
+        lastEnemySpawn = currentTime;
+    }
+    
+    for (const enemy of enemies) {
+        enemy.move(player);
+    }
+}
+
+// Modified checkCollisions to handle high scores
+function checkCollisions() {
+    for (const enemy of enemies) {
+        if (enemy.collidesWithPlayer(player) && !player.hasShield) {
+            gameOver = true;
+            if (checkHighScore(score)) {
+                isEnteringInitials = true;
+                currentInitials = "AAA";
+                currentInitialIndex = 0;
+            }
+            return;
+        }
+    }
+}
+
+function displayScore() {
+    fill(0);
+    textSize(32);
+    text("Score: " + score, 10, 30);
+}
+
+// Modified drawGameOver to include high scores
+function drawGameOver() {
+    background(200, 200, 255);
+    fill(0);
+    textAlign(CENTER);
+    
+    if (isEnteringInitials) {
+        textSize(48);
+        text("NEW HIGH SCORE!", width/2, height/3);
+        textSize(32);
+        text("Enter Your Initials:", width/2, height/2 - 40);
+        
+        // Draw initials with current position highlighted
+        for (let i = 0; i < 3; i++) {
+            if (i === currentInitialIndex) {
+                fill(255, 0, 0);
+            } else {
+                fill(0);
+            }
+            text(currentInitials[i], width/2 - 40 + i * 40, height/2 + 20);
+        }
+        
+        textSize(24);
+        fill(0);
+        text("Use UP/DOWN to change letter", width/2, height/2 + 60);
+        text("Use LEFT/RIGHT to move position", width/2, height/2 + 90);
+        text("Press ENTER when done", width/2, height/2 + 120);
+    } else {
+        textSize(64);
+        text("GAME OVER", width/2, height/3);
+        textSize(32);
+        text("Score: " + score, width/2, height/3 + 50);
+        
+        // Display high scores
+        textSize(36);
+        text("HIGH SCORES", width/2, height/2);
+        textSize(24);
+        for (let i = 0; i < MAX_HIGH_SCORES; i++) {
+            const hsText = `${i + 1}. ${highScores[i].initials} - ${highScores[i].score}`;
+            if (highScores[i].score === score && highScores[i].initials === currentInitials) {
+                fill(255, 0, 0);
+            } else {
+                fill(0);
+            }
+            text(hsText, width/2, height/2 + 40 + i * 30);
+        }
+        
+        fill(0);
+        textSize(24);
+        text("Press SPACE to Play Again", width/2, height - 60);
+    }
+    textAlign(LEFT);
+}
+
+// Modified keyPressed to handle high score input
+function keyPressed() {
+    if (gameOver) {
+        if (isEnteringInitials) {
+            handleInitialsInput();
+        } else if (key === ' ') {
+            resetGame();
+        }
+    }
+}
+
+function handleInitialsInput() {
+    let initialsArray = currentInitials.split('');
+    
+    if (keyCode === LEFT_ARROW) {
+        currentInitialIndex = max(0, currentInitialIndex - 1);
+    } else if (keyCode === RIGHT_ARROW) {
+        currentInitialIndex = min(2, currentInitialIndex + 1);
+    } else if (keyCode === UP_ARROW) {
+        initialsArray[currentInitialIndex] = String.fromCharCode(
+            ((initialsArray[currentInitialIndex].charCodeAt(0) - 65 + 1) % 26) + 65
+        );
+    } else if (keyCode === DOWN_ARROW) {
+        initialsArray[currentInitialIndex] = String.fromCharCode(
+            ((initialsArray[currentInitialIndex].charCodeAt(0) - 65 + 25) % 26) + 65
+        );
+    } else if (keyCode === ENTER) {
+        insertHighScore(currentInitials, score);
+        isEnteringInitials = false;
+    }
+    
+    currentInitials = initialsArray.join('');
+}
+</script>
+</body>
+</html>

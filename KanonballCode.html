@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kanonball</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.10.0/firebase-database.js"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+<script>
+// Firebase Configuration
+const firebaseConfig = {
+    apiKey: "AIzaSyCWS4cFXHhLGyiCQFIVyRGIZ5S690n5ptM",
+    authDomain: "kanonball-leaderboard.firebaseapp.com",
+    projectId: "kanonball-leaderboard",
+    storageBucket: "kanonball-leaderboard.appspot.com",
+    messagingSenderId: "231733823004",
+    appId: "1:231733823004:web:ddad15a48b2a2c0950c1d9"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
+
+// Firebase Functions for Leaderboard
+function submitScore(playerInitials, playerScore) {
+    const leaderboardRef = database.ref('leaderboard/');
+    leaderboardRef.push({
+        initials: playerInitials,
+        score: playerScore
+    });
+}
+
+function getLeaderboard(callback) {
+    const leaderboardRef = database.ref('leaderboard/').orderByChild('score').limitToLast(5);
+    leaderboardRef.on('value', (snapshot) => {
+        const leaderboard = [];
+        snapshot.forEach((data) => {
+            leaderboard.push(data.val());
+        });
+        leaderboard.reverse(); // Show highest scores first
+        callback(leaderboard);
+    });
+}
+
+// Core Game Settings
+const WINDOW_WIDTH = 800;
+const WINDOW_HEIGHT = 600;
+const ENEMY_SPAWN_INTERVAL = 1;
+const POWERUP_SCORE_THRESHOLD = 50;
+const POWERUP_DURATION = 5000;
+
+// Game Variables
+let player, enemies, powerupManager, score, gameOver, isEnteringInitials, currentInitials, leaderboard, lastEnemySpawn;
+
+function resetGame() {
+    player = new Player();
+    enemies = [new Enemy()];
+    powerupManager = new PowerupManager();
+    score = 0;
+    gameOver = false;
+    isEnteringInitials = false;
+    currentInitials = "AAA";
+    leaderboard = [];
+    getLeaderboard(updateLeaderboardDisplay); // Refresh leaderboard
+}
+
+function updateLeaderboardDisplay(data) {
+    leaderboard = data;
+    console.log("Updated leaderboard:", leaderboard); // Debugging feedback
+}
+
+// Player Class
+class Player {
+    constructor() {
+        this.size = 20;
+        this.speed = 5;
+        this.reset();
+    }
+
+    reset() {
+        this.x = WINDOW_WIDTH / 2;
+        this.y = WINDOW_HEIGHT - 50;
+        this.hasShield = false;
+        this.hasSpeedBoost = false;
+    }
+
+    move() {
+        const currentSpeed = this.hasSpeedBoost ? this.speed * 1.5 : this.speed;
+        if (keyIsDown(LEFT_ARROW)) this.x -= currentSpeed;
+        if (keyIsDown(RIGHT_ARROW)) this.x += currentSpeed;
+        if (keyIsDown(UP_ARROW)) this.y -= currentSpeed;
+        if (keyIsDown(DOWN_ARROW)) this.y += currentSpeed;
+
+        // Screen Wrapping
+        if (this.x < 0) this.x = WINDOW_WIDTH;
+        if (this.x > WINDOW_WIDTH) this.x = 0;
+        if (this.y < 0) this.y = WINDOW_HEIGHT;
+        if (this.y > WINDOW_HEIGHT) this.y = 0;
+    }
+
+    draw() {
+        fill(255, 0, 0);
+        rect(this.x, this.y, this.size, this.size);
+
+        // Shield Indicator
+        if (this.hasShield) {
+            stroke(0, 255, 255);
+            strokeWeight(3);
+            noFill();
+            rect(this.x - 3, this.y - 3, this.size + 6, this.size + 6);
+        }
+    }
+}
+
+// Enemy Class
+class Enemy {
+    constructor() {
+        this.size = 15;
+        this.speed = 2;
+        this.respawn();
+    }
+
+    respawn() {
+        this.x = random(WINDOW_WIDTH);
+        this.y = random(WINDOW_HEIGHT - 100);
+    }
+
+    move(player) {
+        const angle = atan2(player.y - this.y, player.x - this.x);
+        this.x += cos(angle) * this.speed;
+        this.y += sin(angle) * this.speed;
+    }
+
+    draw() {
+        fill(0, 255, 0);
+        ellipse(this.x, this.y, this.size);
+    }
+
+    collidesWithPlayer(player) {
+        return dist(this.x, this.y, player.x + player.size / 2, player.y + player.size / 2) < (this.size / 2 + player.size / 2);
+    }
+}
+
+// Powerup Manager
+class PowerupManager {
+    constructor() {
+        this.activePowerups = [];
+    }
+
+    spawn() {
+        this.activePowerups.push({
+            x: random(WINDOW_WIDTH),
+            y: random(WINDOW_HEIGHT - 100),
+            size: 20,
+            type: random(["Shield", "Speed"])
+        });
+    }
+
+    update() {
+        // Check for power-up collection
+        for (let i = this.activePowerups.length - 1; i >= 0; i--) {
+            const p = this.activePowerups[i];
+            if (dist(p.x, p.y, player.x, player.y) < p.size / 2 + player.size / 2) {
+                if (p.type === "Shield") player.hasShield = true;
+                if (p.type === "Speed") player.hasSpeedBoost = true;
+                this.activePowerups.splice(i, 1); // Remove collected powerup
+            }
+        }
+
+        // Add new power-ups periodically
+        if (frameCount % (POWERUP_SCORE_THRESHOLD * 10) === 0) {
+            this.spawn();
+        }
+    }
+
+    draw() {
+        for (const p of this.activePowerups) {
+            fill(p.type === "Shield" ? "cyan" : "yellow");
+            ellipse(p.x, p.y, p.size);
+        }
+    }
+}
+
+// Game Logic
+function draw() {
+    if (gameOver) {
+        drawGameOver();
+        return;
+    }
+
+    background(200, 200, 255);
+
+    player.move();
+    player.draw();
+
+    for (const enemy of enemies) {
+        enemy.move(player);
+        enemy.draw();
+    }
+
+    powerupManager.update();
+    powerupManager.draw();
+
+    checkCollisions();
+    displayScore();
+    spawnEnemies();
+}
+
+function checkCollisions() {
+    for (const enemy of enemies) {
+        if (enemy.collidesWithPlayer(player)) {
+            if (player.hasShield) {
+                player.hasShield = false;
+            } else {
+                gameOver = true;
+                isEnteringInitials = true;
+                return;
+            }
+        }
+    }
+}
+
+function spawnEnemies() {
+    if (frameCount % (ENEMY_SPAWN_INTERVAL * 60) === 0) {
+        enemies.push(new Enemy());
+    }
+}
+
+function displayScore() {
+    fill(0);
+    textSize(24);
+    text(`Score: ${score}`, 10, 30);
+    score++;
+}
+
+function drawGameOver() {
+    background(200, 200, 255);
+    fill(0);
+    textAlign(CENTER);
+    textSize(64);
+    text("GAME OVER", width / 2, height / 3);
+    textSize(32);
+    text(`Score: ${score}`, width / 2, height / 3 + 50);
+
+    if (isEnteringInitials) {
+        textSize(24);
+        text("NEW HIGH SCORE!", width / 2, height / 2);
+        text(`Initials: ${currentInitials}`, width / 2, height / 2 + 30);
+        text("Press ENTER to Submit", width / 2, height / 2 + 60);
+    } else {
+        text("HIGH SCORES", width / 2, height / 2 + 40);
+        leaderboard.forEach((entry, index) => {
+            text(`${index + 1}. ${entry.initials} - ${entry.score}`, width / 2, height / 2 + 80 + index * 30);
+        });
+        text("Press SPACE to Restart", width / 2, height - 50);
+    }
+}
+
+function keyPressed() {
+    if (gameOver && isEnteringInitials && keyCode === ENTER) {
+        submitScore(currentInitials, score);
+        isEnteringInitials = false;
+    } else if (gameOver && keyCode === 32) {
+        resetGame();
+    }
+}
+
+function setup() {
+    createCanvas(WINDOW_WIDTH, WINDOW_HEIGHT);
+    resetGame();
+}
+</script>
+</body>
+</html>

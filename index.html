@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kanonball</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script>
+        window.setup = () => {}; // Placeholder to prevent p5.js errors
+    </script>
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3202768823592239"
+        crossorigin="anonymous"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <script type="module">
+        // Import Firebase modules for database functionality
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+
+        // Firebase Configuration - connects to your specific Firebase instance
+        const firebaseConfig = {
+            apiKey: "AIzaSyBGRqbc1ywGkObQpavDriDAmlTMCXUUaDo",
+            authDomain: "kanonballgame.firebaseapp.com",
+            databaseURL: "https://kanonballgame-default-rtdb.firebaseio.com",
+            projectId: "kanonballgame",
+            storageBucket: "kanonballgame.firebasestorage.app",
+            messagingSenderId: "926622074286",
+            appId: "1:926622074286:web:2b2d3cabf2a9c5ed12b43f",
+            measurementId: "G-8E78DV529X"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+      // Make p5.js functions available within module scope
+for (const key in window) {
+    if (key.startsWith('p5') || key.endsWith('_ARROW') || 
+        ['random', 'keyIsDown', 'stroke', 'strokeWeight', 'fill', 'rect', 
+         'ellipse', 'dist', 'atan2', 'cos', 'sin', 'millis', 'beginShape', 
+         'endShape', 'vertex', 'noStroke', 'textSize', 'text', 'textAlign', 
+         'CENTER', 'LEFT', 'floor', 'width', 'height', 'key', 'createCanvas', 
+         'background', 'max', 'min', 'keyCode'].includes(key)) {
+        if (window[key] !== undefined) {
+            globalThis[key] = window[key];
+        }
+    }
+}
+
+        // Game Constants
+        const WINDOW_WIDTH = 800;
+        const WINDOW_HEIGHT = 600;
+        const ENEMY_SPAWN_INTERVAL = 1;
+        const POWERUP_SCORE_THRESHOLD = 200;
+        const POWERUP_DURATION = 5000;
+        const MAX_HIGH_SCORES = 5;
+        const INITIAL_HIGH_SCORES = [
+            { initials: "AAA", score: 1000 },
+            { initials: "BBB", score: 800 },
+            { initials: "CCC", score: 600 },
+            { initials: "DDD", score: 400 },
+            { initials: "EEE", score: 200 }
+        ];
+
+        // Game State Variables
+        let player;
+        let enemies = [];
+        let score = 0;
+        let gameOver = false;
+        let powerupManager;
+        let highScores = [];
+        let isEnteringInitials = false;
+        let currentInitials = "AAA";
+        let currentInitialIndex = 0;
+        let gameInitialized = false;
+        //let bullets = [];
+        let baseSpawnInterval = .5;  // Starting spawn interval
+        let gameStartTime = 0;      // Track when game started
+	    let lastEnemySpawn = 0;
+
+        // Player Class
+        class Player {
+            constructor() {
+                this.reset();
+                this.size = 20;
+                this.baseSpeed = 5;
+                this.boostSpeed = 10;
+            }
+
+            reset() {
+                this.x = WINDOW_WIDTH / 2;
+                this.y = WINDOW_HEIGHT - 50;
+                this.hasShield = false;
+                this.hasSpeedBoost = false;
+                this.hasMagnet = false;
+                this.hasSlowEnemies = false;
+                this.hasDoublePoints = false;
+            }
+
+            move() {
+                const currentSpeed = this.hasSpeedBoost ? this.boostSpeed : this.baseSpeed;
+                if (keyIsDown(LEFT_ARROW)) this.x -= currentSpeed;
+                if (keyIsDown(RIGHT_ARROW)) this.x += currentSpeed;
+                if (keyIsDown(UP_ARROW)) this.y -= currentSpeed;
+                if (keyIsDown(DOWN_ARROW)) this.y += currentSpeed;
+                this.x = (this.x < 0) ? WINDOW_WIDTH : (this.x > WINDOW_WIDTH) ? 0 : this.x;
+                this.y = (this.y < 0) ? WINDOW_HEIGHT : (this.y > WINDOW_HEIGHT) ? 0 : this.y;
+            }
+
+            draw() {
+                stroke(0);
+                strokeWeight(2);
+                fill(255, 0, 0);
+                rect(this.x, this.y, this.size, this.size);
+                if (this.hasShield) {
+                    stroke(0, 255, 255);
+                    strokeWeight(3);
+                    noFill();
+                    rect(this.x - 2, this.y - 2, this.size + 4, this.size + 4);
+                }
+            }
+        }
+
+        // Enemy Class
+        class Enemy {
+    constructor() {
+        this.size = 15;
+        this.baseSpeed = 2;
+        this.respawn();
+    }
+
+    respawn() {
+        const safeRadius = 100;  // Radius of safe zone around player
+        let validPosition = false;
+        
+        while (!validPosition) {
+            this.x = random(WINDOW_WIDTH);
+            this.y = random(WINDOW_HEIGHT - 100);
+            
+            // Check distance from player
+            const distFromPlayer = dist(this.x, this.y, 
+                                     player.x + player.size/2, 
+                                     player.y + player.size/2);
+            
+            if (distFromPlayer > safeRadius) {
+                validPosition = true;
+            }
+        }
+    }
+
+            move(player) {
+                const speed = player.hasSlowEnemies ? this.baseSpeed * 0.5 : this.baseSpeed;
+                const angle = atan2(player.y - this.y, player.x - this.x);
+                if (player.hasMagnet) {
+                    this.x += cos(angle) * speed * 1.5;
+                    this.y += sin(angle) * speed * 1.5;
+                } else {
+                    this.x += cos(angle) * speed;
+                    this.y += sin(angle) * speed;
+                }
+            }
+
+            draw() {
+                stroke(0);
+                strokeWeight(2);
+                fill(0, 255, 0);
+                ellipse(this.x, this.y, this.size, this.size);
+            }
+
+            collidesWithPlayer(player) {
+                return dist(this.x, this.y, player.x + player.size / 2, player.y + player.size / 2) < (this.size / 2 + player.size / 2);
+            }
+        }
+       /* class Bullet {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.speed = 10;
+        this.size = 5;
+        
+        // Find nearest enemy and calculate direction
+        let nearestEnemy = null;
+        let shortestDist = Infinity;
+        
+        enemies.forEach(enemy => {
+            const d = dist(this.x, this.y, enemy.x, enemy.y);
+            if (d < shortestDist) {
+                shortestDist = d;
+                nearestEnemy = enemy;
+            }
+        });
+        
+        if (nearestEnemy) {
+            // Calculate direction vector
+            const angle = atan2(nearestEnemy.y - this.y, nearestEnemy.x - this.x);
+            this.dx = cos(angle) * this.speed;
+            this.dy = sin(angle) * this.speed;
+        } else {
+            // If no enemies, shoot upward
+            this.dx = 0;
+            this.dy = -this.speed;
+        }
+    }
+    
+    update() {
+        this.x += this.dx;
+        this.y += this.dy;
+    }
+    
+    draw() {
+        fill(0);
+        noStroke();
+        ellipse(this.x, this.y, this.size, this.size);
+    }
+    
+    isOffscreen() {
+        return this.x < 0 || this.x > width || this.y < 0 || this.y > height;
+    }
+    
+    hits(enemy) {
+        return dist(this.x, this.y, enemy.x, enemy.y) < (this.size/2 + enemy.size/2);
+    }
+}
+    */ 
+        // PowerupManager Class
+        class PowerupManager {
+    constructor() {
+        this.activePowerups = [];
+        this.powerupTimers = {
+            Speed: 0,
+            Shield: 0,
+            Magnet: 0,
+            SlowEnemies: 0,
+            DoublePoints: 0
+        };
+        this.nextPowerupScore = POWERUP_SCORE_THRESHOLD;
+    }
+
+    update() {
+        if (score >= this.nextPowerupScore) {
+            this.spawn();
+            this.nextPowerupScore += POWERUP_SCORE_THRESHOLD;
+        }
+
+        const currentTime = millis();
+        // Check each powerup timer
+        for (const [type, endTime] of Object.entries(this.powerupTimers)) {
+            if (endTime > 0 && currentTime > endTime) {
+                this.deactivatePowerup(type);
+            }
+        }
+    }
+
+// Add this method to the PowerupManager class:
+spawn() {
+    const newX = random(width);
+    const newY = random(height - 100);
+    this.activePowerups.push({ x: newX, y: newY, size: 20 });
+}
+
+randomPowerupType() {
+    const types = ["Speed", "Shield", "Magnet", "SlowEnemies", "DoublePoints"];
+    return types[floor(random(types.length))];
+}
+
+    collectPowerup(p) {
+        const type = this.randomPowerupType();
+        this.powerupTimers[type] = millis() + POWERUP_DURATION;
+        
+        switch(type) {
+            case "Speed": player.hasSpeedBoost = true; break;
+            case "Shield": player.hasShield = true; break;
+            case "Magnet": player.hasMagnet = true; break;
+            case "SlowEnemies": player.hasSlowEnemies = true; break;
+            case "DoublePoints": player.hasDoublePoints = true; break;
+        }
+    }
+
+    deactivatePowerup(type) {
+        switch(type) {
+            case "Speed": player.hasSpeedBoost = false; break;
+            case "Shield": player.hasShield = false; break;
+            case "Magnet": player.hasMagnet = false; break;
+            case "SlowEnemies": player.hasSlowEnemies = false; break;
+            case "DoublePoints": player.hasDoublePoints = false; break;
+        }
+        this.powerupTimers[type] = 0;
+    }
+
+    deactivateAll() {
+        for (const type of Object.keys(this.powerupTimers)) {
+            this.deactivatePowerup(type);
+        }
+    }
+
+    draw() {
+        // Draw powerup diamonds (unchanged)
+        for (let i = this.activePowerups.length - 1; i >= 0; i--) {
+            const p = this.activePowerups[i];
+            fill(128, 0, 128);
+            noStroke();
+            beginShape();
+            vertex(p.x, p.y - p.size / 2);
+            vertex(p.x + p.size / 2, p.y);
+            vertex(p.x, p.y + p.size / 2);
+            vertex(p.x - p.size / 2, p.y);
+            endShape(CLOSE);
+
+            if (dist(p.x, p.y, player.x + player.size / 2, player.y + player.size / 2) < (p.size / 2 + player.size / 2)) {
+                this.collectPowerup(p);
+                this.activePowerups.splice(i, 1);
+            }
+        }
+
+        // Draw active powerups list
+        fill(255, 215, 0);
+        textSize(24);
+        textAlign(RIGHT);
+        let yOffset = 30;
+        
+        for (const [type, endTime] of Object.entries(this.powerupTimers)) {
+            if (endTime > 0) {
+                const remainingTime = floor((endTime - millis()) / 1000) + 1;
+                text(`${type}: ${remainingTime}s`, width - 20, yOffset);
+                yOffset += 30;
+            }
+        }
+        textAlign(LEFT);
+    }
+}
+
+        // Score handling function
+        function incrementScore() {
+    const pointValue = player.hasDoublePoints ? 2 : 1;
+    score += pointValue;
+}
+
+        // Firebase Functions
+        async function initializeHighScores() {
+            const highScoresRef = ref(database, 'highScores');
+            try {
+                const snapshot = await get(highScoresRef);
+                if (snapshot.exists()) {
+                    highScores = snapshot.val();
+                } else {
+                    highScores = INITIAL_HIGH_SCORES;
+                    await saveHighScores();
+                }
+            } catch (error) {
+                console.error("Error initializing high scores:", error);
+                highScores = INITIAL_HIGH_SCORES;
+            }
+        }
+
+        function saveHighScores() {
+            const highScoresRef = ref(database, 'highScores');
+            set(highScoresRef, highScores);
+        }
+
+        function setupFirebaseListeners() {
+            const highScoresRef = ref(database, 'highScores');
+            onValue(highScoresRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    highScores = snapshot.val();
+                }
+            });
+        }
+
+        // Game Functions
+        function resetGame() {
+    try {
+        console.log("Starting game reset");
+        player = new Player();
+        enemies = [];
+        //bullets = [];
+        powerupManager = new PowerupManager();
+        score = 0;
+        gameOver = false;
+        lastEnemySpawn = floor(millis() / 1000);
+        gameStartTime = floor(millis() / 1000);  // Add this line
+        baseSpawnInterval = .5;                   // Add this line
+        enemies.push(new Enemy());
+        gameInitialized = true;
+        console.log("Game reset completed successfully");
+    } catch (error) {
+        console.error("Error in resetGame:", error);
+        gameInitialized = false;
+    }
+}
+function drawEnemies() {
+    enemies.forEach(enemy => enemy.draw());
+}
+function updateEnemies() {
+    const currentTime = floor(millis() / 1000); // Current time in seconds
+    const elapsedTime = currentTime - gameStartTime;
+
+    // Adjust how quickly the spawn interval decreases
+    const spawnDecreaseRate = 0.01; // Rate of decrease per second (increase for faster rate)
+    const minSpawnInterval = 0.0001;  // Minimum allowed spawn interval
+    const currentSpawnInterval = Math.max(
+        minSpawnInterval, 
+        baseSpawnInterval - elapsedTime * spawnDecreaseRate
+    );
+
+    // Spawn new enemies based on the current interval
+    if (currentTime - lastEnemySpawn >= currentSpawnInterval) {
+        enemies.push(new Enemy());
+        lastEnemySpawn = currentTime;
+    }
+
+    // Increase enemy speed slightly over time
+    enemies.forEach(enemy => {
+        enemy.baseSpeed = 2 + elapsedTime * 0.1; // Speed increases over time
+        enemy.move(player);
+    });
+}
+        function checkCollisions() {
+            for (const enemy of enemies) {
+                if (enemy.collidesWithPlayer(player) && !player.hasShield) {
+                    gameOver = true;
+                    if (score > highScores[MAX_HIGH_SCORES - 1].score) {
+                        isEnteringInitials = true;
+                    }
+                }
+            }
+        }
+
+        function displayScore() {
+            fill(0);
+            textSize(32);
+            text("Score: " + score, 10, 30);
+        }
+        /*function updateBullets() {
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        bullets[i].update();
+        
+        // Check for collisions with enemies
+        for (let j = enemies.length - 1; j >= 0; j--) {
+            if (bullets[i] && bullets[i].hits(enemies[j])) {
+                enemies.splice(j, 1);
+                bullets.splice(i, 1);
+                break;
+            }
+        }
+        
+        // Remove offscreen bullets
+        if (bullets[i] && bullets[i].isOffscreen()) {
+            bullets.splice(i, 1);
+        }
+    }
+}
+
+function drawBullets() {
+    bullets.forEach(bullet => bullet.draw());
+}
+    */
+        function drawGameOver() {
+    background(200, 200, 255);
+    fill(0);
+    textAlign(CENTER);
+    
+    if (isEnteringInitials) {
+        textSize(48);
+        text("NEW HIGH SCORE!", width/2, height/3);
+        textSize(32);
+        text("Enter Your Initials:", width/2, height/2 - 40);
+        
+        // Draw initials with current position highlighted
+        for (let i = 0; i < 3; i++) {
+            if (i === currentInitialIndex) {
+                fill(255, 0, 0);
+            } else {
+                fill(0);
+            }
+            text(currentInitials[i], width/2 - 40 + i * 40, height/2 + 20);
+        }
+        
+        textSize(24);
+        fill(0);
+        text("Use UP/DOWN to change letter", width/2, height/2 + 60);
+        text("Use LEFT/RIGHT to move position", width/2, height/2 + 90);
+        text("Press ENTER when done", width/2, height/2 + 120);
+    } else {
+        textSize(64);
+        text("GAME OVER", width/2, height/3);
+        textSize(32);
+        text("Score: " + score, width/2, height/3 + 50);
+        
+        // Display high scores
+        textSize(36);
+        text("HIGH SCORES", width/2, height/2);
+        textSize(24);
+        for (let i = 0; i < MAX_HIGH_SCORES; i++) {
+            const hsText = `${i + 1}. ${highScores[i].initials} - ${highScores[i].score}`;
+            if (highScores[i].score === score && highScores[i].initials === currentInitials) {
+                fill(255, 0, 0);
+            } else {
+                fill(0);
+            }
+            text(hsText, width/2, height/2 + 40 + i * 30);
+        }
+        
+        fill(0);
+        textSize(24);
+        text("Press SPACE to Play Again", width/2, height - 60);
+    }
+    textAlign(LEFT);
+}
+
+// 4. Add the missing handleInitialsInput function for high score entry:
+function handleInitialsInput() {
+    let initialsArray = currentInitials.split('');
+    
+    if (keyCode === LEFT_ARROW) {
+        currentInitialIndex = max(0, currentInitialIndex - 1);
+    } else if (keyCode === RIGHT_ARROW) {
+        currentInitialIndex = min(2, currentInitialIndex + 1);
+    } else if (keyCode === UP_ARROW) {
+        initialsArray[currentInitialIndex] = String.fromCharCode(
+            ((initialsArray[currentInitialIndex].charCodeAt(0) - 65 + 1) % 26) + 65
+        );
+    } else if (keyCode === DOWN_ARROW) {
+        initialsArray[currentInitialIndex] = String.fromCharCode(
+            ((initialsArray[currentInitialIndex].charCodeAt(0) - 65 + 25) % 26) + 65
+        );
+    } else if (keyCode === ENTER) {
+        insertHighScore(currentInitials, score);
+        isEnteringInitials = false;
+    }
+    
+    currentInitials = initialsArray.join('');
+}
+
+function insertHighScore(initials, score) {
+    let inserted = false;
+    for (let i = 0; i < MAX_HIGH_SCORES; i++) {
+        if (score > highScores[i].score) {
+            highScores.splice(i, 0, { initials, score });
+            inserted = true;
+            break;
+        }
+    }
+    if (inserted) {
+        highScores = highScores.slice(0, MAX_HIGH_SCORES);
+        saveHighScores();
+    }
+}
+
+        // p5.js main functions
+        window.setup = async function() {
+            console.log("Setup starting");
+            createCanvas(WINDOW_WIDTH, WINDOW_HEIGHT);
+            
+            try {
+                await initializeHighScores();
+                setupFirebaseListeners();
+                resetGame();
+            } catch (error) {
+                console.error("Setup error:", error);
+                // Even if Firebase fails, we can still initialize the game
+                resetGame();
+            }
+            
+            console.log("Setup completed");
+        }
+
+        window.draw = function() {
+    try {
+        if (!gameInitialized) {
+            console.log("Game not yet initialized, waiting...");
+            background(200, 200, 255);
+            return;
+        }
+        
+        if (gameOver) {
+            drawGameOver();
+            return;
+        }
+
+        background(200, 200, 255);
+        player.move();
+        updateEnemies();
+        incrementScore();
+        powerupManager.update();
+        //updateBullets();  // Add here
+        player.draw();
+        drawEnemies();
+        //drawBullets();    // Add here
+        powerupManager.draw();
+        displayScore();
+        checkCollisions();
+    } catch (error) {
+        console.error("Error in draw loop:", error);
+        gameInitialized = false;
+    }
+}
+
+        window.keyPressed = function() {
+    if (gameOver) {
+        if (isEnteringInitials) {
+            handleInitialsInput();
+        } else if (key === ' ') {
+            resetGame();
+        }
+   // } else if (key === ' ') {  // Changed from 'f'/'F' back to space
+    //    bullets.push(new Bullet(player.x + player.size/2, player.y + player.size/2));
+    }
+}
+    </script>
+
+<div id="ad-container">
+    <ins class="adsbygoogle"
+         style="display:block;width:320px;height:50px;margin:auto"
+         data-ad-client="ca-pub-3202768823592239"
+         data-ad-slot="YOUR_AD_SLOT_ID"></ins>
+    <script>
+        (adsbygoogle = window.adsbygoogle || []).push({});
+    </script>
+</div>
+</body>
+</html>

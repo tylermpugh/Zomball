@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kanonball</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script type="module">
+        // Firebase SDK Imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBGRqbc1ywGkObQpavDriDAmlTMCXUUaDo",
+            authDomain: "kanonballgame.firebaseapp.com",
+            databaseURL: "https://kanonballgame-default-rtdb.firebaseio.com",
+            projectId: "kanonballgame",
+            storageBucket: "kanonballgame.firebasestorage.app",
+            messagingSenderId: "926622074286",
+            appId: "1:926622074286:web:2b2d3cabf2a9c5ed12b43f",
+            measurementId: "G-8E78DV529X"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        // Firebase Functions
+        async function initializeHighScores() {
+            const highScoresRef = ref(database, 'highScores');
+            const snapshot = await get(highScoresRef);
+            if (snapshot.exists()) {
+                highScores = snapshot.val();
+            } else {
+                highScores = INITIAL_HIGH_SCORES;
+                saveHighScores(); // Save default scores
+            }
+        }
+
+        function saveHighScores() {
+            const highScoresRef = ref(database, 'highScores');
+            set(highScoresRef, highScores);
+        }
+
+        function setupFirebaseListeners() {
+            const highScoresRef = ref(database, 'highScores');
+            onValue(highScoresRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    highScores = snapshot.val();
+                }
+            });
+        }
+
+        function insertHighScore(initials, score) {
+            let inserted = false;
+            for (let i = 0; i < MAX_HIGH_SCORES; i++) {
+                if (score > highScores[i].score) {
+                    highScores.splice(i, 0, { initials, score });
+                    inserted = true;
+                    break;
+                }
+            }
+            highScores = highScores.slice(0, MAX_HIGH_SCORES);
+            saveHighScores(); // Save to Firebase
+            return inserted;
+        }
+    </script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+<script>
+    // Game Constants
+    const WINDOW_WIDTH = 800;
+    const WINDOW_HEIGHT = 600;
+    const ENEMY_SPAWN_INTERVAL = 1;
+    const POWERUP_SCORE_THRESHOLD = 50;
+    const POWERUP_DURATION = 5000;
+    const MAX_HIGH_SCORES = 5;
+    const INITIAL_HIGH_SCORES = [
+        { initials: "AAA", score: 1000 },
+        { initials: "BBB", score: 800 },
+        { initials: "CCC", score: 600 },
+        { initials: "DDD", score: 400 },
+        { initials: "EEE", score: 200 }
+    ];
+
+    // High Score State Variables
+    let highScores = [];
+    let isEnteringInitials = false;
+    let currentInitials = "AAA";
+    let currentInitialIndex = 0;
+
+    // Player Class
+    class Player {
+        constructor() {
+            this.reset();
+            this.size = 20;
+            this.baseSpeed = 5;
+            this.boostSpeed = 8;
+        }
+
+        reset() {
+            this.x = WINDOW_WIDTH / 2;
+            this.y = WINDOW_HEIGHT - 50;
+            this.hasShield = false;
+            this.hasSpeedBoost = false;
+            this.hasMagnet = false;
+            this.hasSlowEnemies = false;
+            this.hasDoublePoints = false;
+        }
+
+        move() {
+            const currentSpeed = this.hasSpeedBoost ? this.boostSpeed : this.baseSpeed;
+            if (keyIsDown(LEFT_ARROW)) this.x -= currentSpeed;
+            if (keyIsDown(RIGHT_ARROW)) this.x += currentSpeed;
+            if (keyIsDown(UP_ARROW)) this.y -= currentSpeed;
+            if (keyIsDown(DOWN_ARROW)) this.y += currentSpeed;
+            this.x = (this.x < 0) ? WINDOW_WIDTH : (this.x > WINDOW_WIDTH) ? 0 : this.x;
+            this.y = (this.y < 0) ? WINDOW_HEIGHT : (this.y > WINDOW_HEIGHT) ? 0 : this.y;
+        }
+
+        draw() {
+            stroke(0);
+            strokeWeight(2);
+            fill(255, 0, 0);
+            rect(this.x, this.y, this.size, this.size);
+            if (this.hasShield) {
+                stroke(0, 255, 255);
+                strokeWeight(3);
+                noFill();
+                rect(this.x - 2, this.y - 2, this.size + 4, this.size + 4);
+            }
+        }
+    }
+
+    // Enemy Class
+    class Enemy {
+        constructor() {
+            this.size = 15;
+            this.baseSpeed = 2;
+            this.respawn();
+        }
+
+        respawn() {
+            this.x = random(WINDOW_WIDTH);
+            this.y = random(WINDOW_HEIGHT - 100);
+        }
+
+        move(player) {
+            const speed = player.hasSlowEnemies ? this.baseSpeed * 0.5 : this.baseSpeed;
+            const angle = atan2(player.y - this.y, player.x - this.x);
+            if (player.hasMagnet) {
+                this.x += cos(angle) * speed * 1.5;
+                this.y += sin(angle) * speed * 1.5;
+            } else {
+                this.x += cos(angle) * speed;
+                this.y += sin(angle) * speed;
+            }
+        }
+
+        draw() {
+            stroke(0);
+            strokeWeight(2);
+            fill(0, 255, 0);
+            ellipse(this.x, this.y, this.size, this.size);
+        }
+
+        collidesWithPlayer(player) {
+            return dist(this.x, this.y, player.x + player.size / 2, player.y + player.size / 2) < (this.size / 2 + player.size / 2);
+        }
+    }
+
+    // PowerupManager Class
+    class PowerupManager {
+        constructor() {
+            this.activePowerups = [];
+            this.currentType = "";
+            this.endTime = 0;
+            this.nextPowerupScore = POWERUP_SCORE_THRESHOLD;
+        }
+
+        update() {
+            if (score >= this.nextPowerupScore) {
+                this.spawn();
+                this.nextPowerupScore += POWERUP_SCORE_THRESHOLD;
+            }
+
+            if (millis() > this.endTime && this.currentType !== "") {
+                this.deactivateAll();
+            }
+        }
+
+        spawn() {
+            const newX = random(width);
+            const newY = random(height - 100);
+            this.activePowerups.push({ x: newX, y: newY, size: 20 });
+        }
+
+        randomPowerupType() {
+            const types = ["Speed", "Shield", "Magnet", "SlowEnemies", "DoublePoints"];
+            return types[floor(random(types.length))];
+        }
+
+        collectPowerup(p) {
+            this.currentType = this.randomPowerupType();
+            this.endTime = millis() + POWERUP_DURATION;
+            switch (this.currentType) {
+                case "Speed": player.hasSpeedBoost = true; break;
+                case "Shield": player.hasShield = true; break;
+                case "Magnet": player.hasMagnet = true; break;
+                case "SlowEnemies": player.hasSlowEnemies = true; break;
+                case "DoublePoints": player.hasDoublePoints = true; break;
+            }
+        }
+
+        deactivateAll() {
+            player.hasSpeedBoost = false;
+            player.hasShield = false;
+            player.hasMagnet = false;
+            player.hasSlowEnemies = false;
+            player.hasDoublePoints = false;
+            this.currentType = "";
+        }
+
+        draw() {
+            for (let i = this.activePowerups.length - 1; i >= 0; i--) {
+                const p = this.activePowerups[i];
+                fill(128, 0, 128);
+                noStroke();
+                beginShape();
+                vertex(p.x, p.y - p.size / 2);
+                vertex(p.x + p.size / 2, p.y);
+                vertex(p.x, p.y + p.size / 2);
+                vertex(p.x - p.size / 2, p.y);
+                endShape(CLOSE);
+
+                if (dist(p.x, p.y, player.x + player.size / 2, player.y + player.size / 2) < (p.size / 2 + player.size / 2)) {
+                    this.collectPowerup(p);
+                    this.activePowerups.splice(i, 1);
+                }
+            }
+
+            if (this.currentType !== "") {
+                fill(255, 215, 0);
+                textSize(24);
+                text("Powerup: " + this.currentType, width - 250, 30);
+                const remainingTime = floor((this.endTime - millis()) / 1000) + 1;
+                text("Time: " + remainingTime + "s", width - 250, 60);
+            }
+        }
+    }
+
+    // Game Variables
+    let player, enemies, score = 0, gameOver = false, powerupManager;
+
+    function setup() {
+        createCanvas(WINDOW_WIDTH, WINDOW_HEIGHT);
+        initializeHighScores();
+        setupFirebaseListeners();
+        resetGame();
+    }
+
+    function resetGame() {
+        player = new Player();
+        enemies = [];
+        powerupManager = new PowerupManager();
+        score = 0;
+        gameOver = false;
+        enemies.push(new Enemy());
+    }
+
+    function draw() {
+        if (gameOver) {
+            drawGameOver();
+            return;
+        }
+        background(200, 200, 255);
+        player.move();
+        updateEnemies();
+        powerupManager.update();
+        player.draw();
+        drawEnemies();
+        powerupManager.draw();
+        displayScore();
+        checkCollisions();
+    }
+
+    function updateEnemies() {
+        enemies.forEach(enemy => enemy.move(player));
+    }
+
+    function drawEnemies() {
+        enemies.forEach(enemy => enemy.draw());
+    }
+
+    function checkCollisions() {
+        for (const enemy of enemies) {
+            if (enemy.collidesWithPlayer(player) && !player.hasShield) {
+                gameOver = true;
+                if (insertHighScore(currentInitials, score)) {
+                    isEnteringInitials = true;
+                }
+            }
+        }
+    }
+
+    function displayScore() {
+        fill(0);
+        textSize(32);
+        text("Score: " + score, 10, 30);
+    }
+
+    function drawGameOver() {
+        background(200, 200, 255);
+        fill(0);
+        textAlign(CENTER);
+        textSize(64);
+        text("GAME OVER", width / 2, height / 3);
+        textSize(32);
+        text("Score: " + score, width / 2, height / 3 + 50);
+        text("Press SPACE to Play Again", width / 2, height - 60);
+        textAlign(LEFT);
+    }
+
+    function keyPressed() {
+        if (gameOver && key === ' ') {
+            resetGame();
+        }
+    }
+</script>
+</body>
+</html>
